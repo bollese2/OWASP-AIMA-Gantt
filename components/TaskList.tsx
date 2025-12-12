@@ -11,6 +11,7 @@ interface TaskListProps {
   onMoveTask: (taskId: string, direction: 'up' | 'down') => void;
   selectedTaskId: string | null;
   onSelectTask: (id: string) => void;
+  teamMembers: string[];
 }
 
 const TaskList = forwardRef<HTMLDivElement, TaskListProps>(({ 
@@ -21,7 +22,8 @@ const TaskList = forwardRef<HTMLDivElement, TaskListProps>(({
   onAddTaskBelow,
   onMoveTask,
   selectedTaskId,
-  onSelectTask
+  onSelectTask,
+  teamMembers
 }, ref) => {
 
   const handleToggleExpand = (e: React.MouseEvent, task: Task) => {
@@ -132,10 +134,9 @@ const TaskList = forwardRef<HTMLDivElement, TaskListProps>(({
                             className="w-full text-[10px] text-gray-500 bg-transparent border-none rounded focus:ring-1 focus:ring-blue-500 p-0"
                         >
                             <option value="Unassigned">--</option>
-                            <option value="Security Lead">Sec Lead</option>
-                            <option value="AI Engineer">AI Eng</option>
-                            <option value="Legal">Legal</option>
-                            <option value="Ops">Ops</option>
+                            {teamMembers.map(member => (
+                                <option key={member} value={member}>{member}</option>
+                            ))}
                         </select>
                       )}
                 </div>

@@ -33,6 +33,7 @@ export interface ProjectData {
   year: number;
   tasks: Task[];
   dependencies: Dependency[];
+  teamMembers: string[];
 }
 
 export interface DragState {

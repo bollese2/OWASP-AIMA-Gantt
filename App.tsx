@@ -4,13 +4,15 @@ import { generateInitialData } from './constants';
 import { getVisibleTasks, recalculateParentDates, getTaskBlockRange } from './utils';
 import TaskList from './components/TaskList';
 import GanttChart from './components/GanttChart';
-import { Download, Upload, ZoomIn, ZoomOut, RotateCcw, Plus, Calendar, ShieldCheck } from 'lucide-react';
+import Dashboard from './components/Dashboard';
+import { Download, Upload, ZoomIn, ZoomOut, RotateCcw, Plus, Calendar, ShieldCheck, LayoutDashboard, BarChart } from 'lucide-react';
 
 const App: React.FC = () => {
   const [data, setData] = useState<ProjectData>(generateInitialData());
   const [activeTab, setActiveTab] = useState<Category>(CATEGORIES[0]);
   const [viewMode, setViewMode] = useState<ViewMode>('Month');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [currentView, setCurrentView] = useState<'Gantt' | 'Dashboard'>('Gantt');
 
   // Scroll Sync Refs
   const taskListRef = useRef<HTMLDivElement>(null);
@@ -36,6 +38,10 @@ const App: React.FC = () => {
     const recalculatedTasks = recalculateParentDates(newTasks);
     
     setData({ ...data, tasks: recalculatedTasks });
+  };
+
+  const handleUpdateTeamMembers = (members: string[]) => {
+      setData({ ...data, teamMembers: members });
   };
 
   const handleDeleteTask = (taskId: string) => {
@@ -196,11 +202,16 @@ const App: React.FC = () => {
         try {
           const content = e.target?.result as string;
           const parsed = JSON.parse(content);
+          // Ensure dates are parsed back to Date objects
           parsed.tasks = parsed.tasks.map((t: any) => ({
             ...t,
             start: new Date(t.start),
             end: new Date(t.end)
           }));
+          // Backward compatibility for old JSON files without teamMembers
+          if (!parsed.teamMembers) {
+              parsed.teamMembers = ["Security Lead", "AI Engineer", "Legal", "Ops"];
+          }
           setData(parsed);
         } catch (err) {
           alert("Invalid JSON file");
@@ -240,7 +251,7 @@ const App: React.FC = () => {
       leftEl.removeEventListener('scroll', handleLeftScroll);
       rightEl.removeEventListener('scroll', handleRightScroll);
     };
-  }, [activeTab]); // Re-attach when tab changes to ensure refs are valid
+  }, [activeTab, currentView]); 
 
   return (
     <div className="flex flex-col h-screen bg-gray-100 text-slate-800 font-sans">
@@ -263,35 +274,55 @@ const App: React.FC = () => {
           </div>
         </div>
         
+        {/* Navigation Switch */}
+        <div className="flex bg-gray-100 p-1 rounded-lg border border-gray-200">
+             <button 
+                onClick={() => setCurrentView('Gantt')}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${currentView === 'Gantt' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+             >
+                <BarChart size={16} /> Gantt Chart
+             </button>
+             <button 
+                onClick={() => setCurrentView('Dashboard')}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${currentView === 'Dashboard' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+             >
+                <LayoutDashboard size={16} /> Dashboard
+             </button>
+        </div>
+
         <div className="flex items-center gap-4">
-           {/* Year Control */}
-           <div className="flex items-center bg-gray-50 border border-gray-200 rounded-md px-2 py-1">
-              <Calendar size={14} className="text-gray-400 mr-2" />
-              <input 
-                type="number" 
-                value={data.year}
-                onChange={(e) => setData({...data, year: parseInt(e.target.value)})}
-                className="w-16 bg-transparent text-sm font-semibold outline-none"
-              />
-           </div>
+           {/* Year Control (Only for Gantt) */}
+           {currentView === 'Gantt' && (
+               <>
+               <div className="flex items-center bg-gray-50 border border-gray-200 rounded-md px-2 py-1">
+                  <Calendar size={14} className="text-gray-400 mr-2" />
+                  <input 
+                    type="number" 
+                    value={data.year}
+                    onChange={(e) => setData({...data, year: parseInt(e.target.value)})}
+                    className="w-16 bg-transparent text-sm font-semibold outline-none"
+                  />
+               </div>
 
-           <div className="h-6 w-px bg-gray-200 mx-2"></div>
+               <div className="h-6 w-px bg-gray-200 mx-2"></div>
 
-           {/* Zoom Controls */}
-           <div className="flex bg-gray-100 rounded-lg p-1 border border-gray-200">
-             <button 
-                onClick={() => setViewMode('Month')} 
-                className={`px-3 py-1 text-xs rounded-md transition-all ${viewMode === 'Month' ? 'bg-white shadow text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}
-             >
-                Month
-             </button>
-             <button 
-                onClick={() => setViewMode('Quarter')} 
-                className={`px-3 py-1 text-xs rounded-md transition-all ${viewMode === 'Quarter' ? 'bg-white shadow text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}
-             >
-                Qtr
-             </button>
-           </div>
+               {/* Zoom Controls */}
+               <div className="flex bg-gray-100 rounded-lg p-1 border border-gray-200">
+                 <button 
+                    onClick={() => setViewMode('Month')} 
+                    className={`px-3 py-1 text-xs rounded-md transition-all ${viewMode === 'Month' ? 'bg-white shadow text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}
+                 >
+                    Month
+                 </button>
+                 <button 
+                    onClick={() => setViewMode('Quarter')} 
+                    className={`px-3 py-1 text-xs rounded-md transition-all ${viewMode === 'Quarter' ? 'bg-white shadow text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}
+                 >
+                    Qtr
+                 </button>
+               </div>
+               </>
+           )}
 
            <div className="flex gap-2">
              <button onClick={handleDownload} className="p-2 text-gray-600 hover:bg-gray-100 rounded-full transition-colors" title="Download JSON">
@@ -305,67 +336,77 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Tabs */}
-      <nav className="bg-white border-b border-gray-200 px-6 flex gap-1 overflow-x-auto no-scrollbar flex-shrink-0">
-        {CATEGORIES.map(cat => (
-          <button
-            key={cat}
-            onClick={() => setActiveTab(cat)}
-            className={`
-              px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap
-              ${activeTab === cat 
-                ? 'border-blue-600 text-blue-600 bg-blue-50/50' 
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'}
-            `}
-          >
-            {cat}
-          </button>
-        ))}
-      </nav>
+      {/* Main Content */}
+      {currentView === 'Gantt' ? (
+          <>
+            {/* Tabs */}
+            <nav className="bg-white border-b border-gray-200 px-6 flex gap-1 overflow-x-auto no-scrollbar flex-shrink-0">
+                {CATEGORIES.map(cat => (
+                <button
+                    key={cat}
+                    onClick={() => setActiveTab(cat)}
+                    className={`
+                    px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap
+                    ${activeTab === cat 
+                        ? 'border-blue-600 text-blue-600 bg-blue-50/50' 
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'}
+                    `}
+                >
+                    {cat}
+                </button>
+                ))}
+            </nav>
 
-      {/* Main Content Area */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left Sidebar: Task List */}
-        <TaskList 
-          ref={taskListRef}
-          tasks={visibleTasks}
-          onUpdateTask={handleUpdateTask}
-          onDeleteTask={handleDeleteTask}
-          onAddTask={handleAddTask}
-          onAddTaskBelow={handleAddTaskBelow}
-          onMoveTask={handleMoveTask}
-          selectedTaskId={selectedTaskId}
-          onSelectTask={setSelectedTaskId}
-        />
+            <div className="flex flex-1 overflow-hidden">
+                <TaskList 
+                ref={taskListRef}
+                tasks={visibleTasks}
+                onUpdateTask={handleUpdateTask}
+                onDeleteTask={handleDeleteTask}
+                onAddTask={handleAddTask}
+                onAddTaskBelow={handleAddTaskBelow}
+                onMoveTask={handleMoveTask}
+                selectedTaskId={selectedTaskId}
+                onSelectTask={setSelectedTaskId}
+                teamMembers={data.teamMembers || []}
+                />
 
-        {/* Right Area: Chart */}
-        <GanttChart 
-          ref={ganttChartRef}
-          tasks={visibleTasks}
-          dependencies={data.dependencies}
-          year={data.year}
-          viewMode={viewMode}
-          onUpdateTask={handleUpdateTask}
-          onAddDependency={handleAddDependency}
-          onDeleteDependency={handleDeleteDependency}
-          selectedTaskId={selectedTaskId}
-          onSelectTask={setSelectedTaskId}
-        />
-      </div>
-      
-      {/* Legend Footer */}
-      <footer className="bg-white border-t border-gray-200 p-2 px-6 flex items-center justify-between text-xs text-gray-500 flex-shrink-0">
-         <div className="flex gap-4">
-            <span className="flex items-center gap-1"><div className="w-3 h-3 bg-blue-300 rounded"></div> Task</span>
-            <span className="flex items-center gap-1"><div className="w-3 h-3 bg-slate-700 rounded"></div> Summary</span>
-            <span className="flex items-center gap-1"><div className="w-3 h-3 bg-yellow-400 rotate-45"></div> Milestone</span>
-            <span className="flex items-center gap-1"><div className="w-3 h-3 bg-red-400 rounded"></div> Critical Path</span>
-            <span className="flex items-center gap-1"><div className="w-3 h-3 bg-gray-200 rounded"></div> Inactive</span>
-         </div>
-         <div>
-            Drag bars to move • Drag edges to resize • Drag dot on right to link dependencies • Click lines to delete
-         </div>
-      </footer>
+                <GanttChart 
+                ref={ganttChartRef}
+                tasks={visibleTasks}
+                dependencies={data.dependencies}
+                year={data.year}
+                viewMode={viewMode}
+                onUpdateTask={handleUpdateTask}
+                onAddDependency={handleAddDependency}
+                onDeleteDependency={handleDeleteDependency}
+                selectedTaskId={selectedTaskId}
+                onSelectTask={setSelectedTaskId}
+                />
+            </div>
+
+            <footer className="bg-white border-t border-gray-200 p-2 px-6 flex items-center justify-between text-xs text-gray-500 flex-shrink-0">
+                <div className="flex gap-4">
+                    <span className="flex items-center gap-1"><div className="w-3 h-3 bg-blue-300 rounded"></div> Task</span>
+                    <span className="flex items-center gap-1"><div className="w-3 h-3 bg-slate-700 rounded"></div> Summary</span>
+                    <span className="flex items-center gap-1"><div className="w-3 h-3 bg-yellow-400 rotate-45"></div> Milestone</span>
+                    <span className="flex items-center gap-1"><div className="w-3 h-3 bg-red-400 rounded"></div> Critical Path</span>
+                    <span className="flex items-center gap-1"><div className="w-3 h-3 bg-gray-200 rounded"></div> Inactive</span>
+                </div>
+                <div>
+                    Drag bars to move • Drag edges to resize • Drag dot on right to link dependencies • Click lines to delete
+                </div>
+            </footer>
+          </>
+      ) : (
+          <div className="flex-1 overflow-hidden">
+              <Dashboard 
+                tasks={data.tasks} 
+                teamMembers={data.teamMembers || []} 
+                onUpdateTeamMembers={handleUpdateTeamMembers}
+              />
+          </div>
+      )}
     </div>
   );
 };

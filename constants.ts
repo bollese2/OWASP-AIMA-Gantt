@@ -1220,6 +1220,7 @@ export const generateInitialData = (): ProjectData => {
     title: "OWASP AIMA Maturity Program",
     year: currentYear,
     tasks,
-    dependencies
+    dependencies,
+    teamMembers: ["Security Lead", "AI Engineer", "Legal", "Ops"]
   };
 };
