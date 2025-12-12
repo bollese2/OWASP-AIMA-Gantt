@@ -1,0 +1,5 @@
+{
+  "name": "OWASP AIMA Gantt Manager",
+  "description": "A comprehensive Gantt chart application for managing AI Security Program Maturity assessment, featuring timeline visualization, critical path analysis, and full CRUD capabilities.",
+  "requestFramePermissions": []
+}
