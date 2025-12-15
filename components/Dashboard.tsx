@@ -1,16 +1,21 @@
 import React, { useState } from 'react';
 import { Task, TaskStatus } from '../types';
-import { Plus, Trash2, Edit2, Check, X, User } from 'lucide-react';
+import { Plus, Trash2, Edit2, Check, X, User, FileText, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface DashboardProps {
   tasks: Task[];
   teamMembers: string[];
   onUpdateTeamMembers: (members: string[]) => void;
+  onUpdateTask: (task: Task) => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ tasks, teamMembers, onUpdateTeamMembers }) => {
+const Dashboard: React.FC<DashboardProps> = ({ tasks, teamMembers, onUpdateTeamMembers, onUpdateTask }) => {
   const [newMemberName, setNewMemberName] = useState('');
   const [editingMember, setEditingMember] = useState<{ index: number, name: string } | null>(null);
+
+  // Local state for dashboard description expansion to avoid affecting Gantt view state if desired, 
+  // or we can use the task property directly. Using task property allows persistence across views.
+  // Using task property directly.
 
   const handleAddMember = () => {
     if (newMemberName.trim() && !teamMembers.includes(newMemberName.trim())) {
@@ -45,6 +50,48 @@ const Dashboard: React.FC<DashboardProps> = ({ tasks, teamMembers, onUpdateTeamM
   const getTasksForMember = (member: string, status: TaskStatus) => {
     return tasks.filter(t => t.assignee === member && t.status === status && t.type !== 'summary' && t.isActive);
   };
+
+  const toggleDescription = (task: Task) => {
+      onUpdateTask({ ...task, isDescriptionExpanded: !task.isDescriptionExpanded });
+  };
+
+  const updateDescription = (task: Task, desc: string) => {
+      onUpdateTask({ ...task, description: desc });
+  };
+
+  const renderTaskCard = (t: Task, borderColor: string, bgColor: string) => (
+      <div key={t.id} className={`border-l-4 ${borderColor} ${bgColor} p-2 rounded shadow-sm flex flex-col gap-2`}>
+        <div className="flex justify-between items-start">
+            <div className="font-medium text-slate-800 text-xs">{t.name}</div>
+            <button 
+                onClick={() => toggleDescription(t)} 
+                className="text-gray-400 hover:text-blue-600 p-0.5"
+                title="Toggle Description"
+            >
+                <FileText size={12} />
+            </button>
+        </div>
+        
+        {t.isDescriptionExpanded && (
+            <div className="mt-1">
+                <textarea 
+                    value={t.description || ''}
+                    onChange={(e) => updateDescription(t, e.target.value)}
+                    placeholder="Add description..."
+                    className="w-full text-xs p-1 border border-gray-200 rounded focus:ring-1 focus:ring-blue-500 outline-none bg-white/50"
+                    rows={3}
+                />
+            </div>
+        )}
+        
+        <div className="text-gray-500 text-[10px] mt-1 flex justify-between items-center">
+            <span>Due: {t.end.toLocaleDateString()}</span>
+            {t.description && !t.isDescriptionExpanded && (
+                <span className="text-gray-400 italic max-w-[80px] truncate">{t.description}</span>
+            )}
+        </div>
+      </div>
+  );
 
   return (
     <div className="flex flex-col h-full bg-gray-50 p-6 overflow-auto">
@@ -110,10 +157,8 @@ const Dashboard: React.FC<DashboardProps> = ({ tasks, teamMembers, onUpdateTeamM
              const blocked = getTasksForMember(member, 'Blocked');
              const completed = getTasksForMember(member, 'Completed');
              
-             // Only show card if they have tasks in these categories? Or always show?
-             // Show always so we can see who has nothing.
              return (
-               <div key={member} className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
+               <div key={member} className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden h-fit">
                  <div className="bg-gray-100 px-4 py-3 border-b border-gray-200 font-semibold text-gray-700 flex justify-between items-center">
                     <span>{member}</span>
                     <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">{inProgress.length + blocked.length + completed.length} Active Tasks</span>
@@ -124,12 +169,7 @@ const Dashboard: React.FC<DashboardProps> = ({ tasks, teamMembers, onUpdateTeamM
                     {blocked.length > 0 && (
                       <div className="flex flex-col gap-2">
                          <h4 className="text-xs font-bold text-red-600 uppercase tracking-wider">Blocked ({blocked.length})</h4>
-                         {blocked.map(t => (
-                           <div key={t.id} className="bg-red-50 border-l-4 border-red-500 p-2 text-xs rounded shadow-sm">
-                             <div className="font-medium text-slate-800">{t.name}</div>
-                             <div className="text-gray-500 mt-1">Due: {t.end.toLocaleDateString()}</div>
-                           </div>
-                         ))}
+                         {blocked.map(t => renderTaskCard(t, 'border-red-500', 'bg-red-50'))}
                       </div>
                     )}
 
@@ -137,12 +177,7 @@ const Dashboard: React.FC<DashboardProps> = ({ tasks, teamMembers, onUpdateTeamM
                     {inProgress.length > 0 && (
                       <div className="flex flex-col gap-2">
                          <h4 className="text-xs font-bold text-yellow-600 uppercase tracking-wider">In Progress ({inProgress.length})</h4>
-                         {inProgress.map(t => (
-                           <div key={t.id} className="bg-yellow-50 border-l-4 border-yellow-400 p-2 text-xs rounded shadow-sm">
-                             <div className="font-medium text-slate-800">{t.name}</div>
-                             <div className="text-gray-500 mt-1">Due: {t.end.toLocaleDateString()}</div>
-                           </div>
-                         ))}
+                         {inProgress.map(t => renderTaskCard(t, 'border-yellow-400', 'bg-yellow-50'))}
                       </div>
                     )}
 
@@ -150,12 +185,7 @@ const Dashboard: React.FC<DashboardProps> = ({ tasks, teamMembers, onUpdateTeamM
                     {completed.length > 0 && (
                       <div className="flex flex-col gap-2">
                          <h4 className="text-xs font-bold text-green-600 uppercase tracking-wider">Completed ({completed.length})</h4>
-                         {completed.map(t => (
-                           <div key={t.id} className="bg-green-50 border-l-4 border-green-500 p-2 text-xs rounded shadow-sm opacity-75">
-                             <div className="font-medium text-slate-800 line-through">{t.name}</div>
-                             <div className="text-gray-500 mt-1">Done: {t.end.toLocaleDateString()}</div>
-                           </div>
-                         ))}
+                         {completed.map(t => renderTaskCard(t, 'border-green-500', 'bg-green-50'))}
                       </div>
                     )}
 

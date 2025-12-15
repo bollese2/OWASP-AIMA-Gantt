@@ -25,6 +25,7 @@ export interface Task {
   // Hierarchy fields
   parentId?: string;
   isExpanded?: boolean; // Only relevant for summary tasks
+  isDescriptionExpanded?: boolean; // For UI toggle of description field
   depth: number; // 0 for root, 1 for child, etc.
 }
 
@@ -34,6 +35,7 @@ export interface ProjectData {
   tasks: Task[];
   dependencies: Dependency[];
   teamMembers: string[];
+  categories: string[];
 }
 
 export interface DragState {
@@ -55,4 +57,4 @@ export const CATEGORIES = [
   "Operations"
 ] as const;
 
-export type Category = typeof CATEGORIES[number];
+export type Category = string;

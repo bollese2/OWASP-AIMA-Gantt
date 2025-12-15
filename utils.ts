@@ -159,18 +159,17 @@ export const recalculateParentDates = (tasks: Task[]): Task[] => {
              p.isActive = false;
          } else {
              p.isActive = true;
-             // Priority: Red > Green > Blue
-             // We can use a set to check presence
+             // Priority: Blocked > In Progress > Not Started > Completed
              const statuses = new Set(activeChildren.map(c => c.status));
              
              if (statuses.has('Blocked')) {
                  p.status = 'Blocked';
-             } else if (statuses.has('Completed')) {
-                 p.status = 'Completed';
+             } else if (statuses.has('In Progress')) {
+                 p.status = 'In Progress';
              } else if (statuses.has('Not Started')) {
                  p.status = 'Not Started';
              } else {
-                 p.status = 'In Progress'; // Fallback (e.g. only Yellows)
+                 p.status = 'Completed';
              }
          }
        }

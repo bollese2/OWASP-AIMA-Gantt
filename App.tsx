@@ -1,24 +1,44 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { ProjectData, Task, CATEGORIES, Category, ViewMode, Dependency } from './types';
 import { generateInitialData } from './constants';
 import { getVisibleTasks, recalculateParentDates, getTaskBlockRange } from './utils';
 import TaskList from './components/TaskList';
 import GanttChart from './components/GanttChart';
 import Dashboard from './components/Dashboard';
-import { Download, Upload, ZoomIn, ZoomOut, RotateCcw, Plus, Calendar, ShieldCheck, LayoutDashboard, BarChart } from 'lucide-react';
+import { Download, Upload, ZoomIn, ZoomOut, RotateCcw, Plus, Calendar, ShieldCheck, LayoutDashboard, BarChart, FilePlus, FolderPlus } from 'lucide-react';
 
 const App: React.FC = () => {
   const [data, setData] = useState<ProjectData>(generateInitialData());
-  const [activeTab, setActiveTab] = useState<Category>(CATEGORIES[0]);
-  const [viewMode, setViewMode] = useState<ViewMode>('Month');
+  const [activeTab, setActiveTab] = useState<string>(data.categories?.[0] || "Responsible AI");
+  const [viewMode, setViewMode] = useState<ViewMode>('Year');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<'Gantt' | 'Dashboard'>('Gantt');
+  
+  // Resizing state
+  const [taskListWidth, setTaskListWidth] = useState(870);
+  const [isResizing, setIsResizing] = useState(false);
+
+  // New Category State
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [isAddingCategory, setIsAddingCategory] = useState(false);
 
   // Scroll Sync Refs
   const taskListRef = useRef<HTMLDivElement>(null);
   const ganttChartRef = useRef<HTMLDivElement>(null);
   const isSyncingLeft = useRef(false);
   const isSyncingRight = useRef(false);
+
+  // Ensure initial data has categories if loaded from older JSON
+  useEffect(() => {
+     if (!data.categories || data.categories.length === 0) {
+        // Fallback or init
+        const cats = Array.from(new Set(data.tasks.map(t => t.category)));
+        setData(prev => ({ ...prev, categories: cats.length > 0 ? cats : [...CATEGORIES] }));
+        if (cats.length > 0) setActiveTab(cats[0]);
+     } else if (!data.categories.includes(activeTab)) {
+         setActiveTab(data.categories[0]);
+     }
+  }, [data.categories]);
 
   // Derived state for current view
   const categoryTasks = useMemo(() => 
@@ -86,35 +106,73 @@ const App: React.FC = () => {
     setSelectedTaskId(newTask.id);
   };
 
-  const handleAddTaskBelow = (targetTaskId: string) => {
+  const handleAddRootFolder = () => {
+      const newTask: Task = {
+        id: `task-${Date.now()}`,
+        name: 'New Root Folder',
+        start: new Date(data.year, 0, 1),
+        end: new Date(data.year, 11, 31),
+        progress: 0,
+        isActive: true,
+        status: 'Not Started',
+        assignee: 'Unassigned',
+        type: 'summary',
+        category: activeTab,
+        depth: 0,
+        isExpanded: true
+      };
+      
+      const newTasks = [...data.tasks, newTask];
+      setData({ ...data, tasks: newTasks });
+      setSelectedTaskId(newTask.id);
+  };
+
+  const handleAddChild = (targetTaskId: string, type: 'task' | 'summary') => {
       const targetIndex = data.tasks.findIndex(t => t.id === targetTaskId);
       if (targetIndex === -1) return;
 
-      const targetTask = data.tasks[targetIndex];
-      const block = getTaskBlockRange(data.tasks, targetIndex);
-      const insertIndex = block.end + 1;
+      const parentTask = data.tasks[targetIndex];
+      const insertIndex = targetIndex + 1; // Insert immediately after parent
 
       const newTask: Task = {
           id: `task-${Date.now()}`,
-          name: 'New Task',
-          start: new Date(targetTask.start),
-          end: new Date(targetTask.start.getTime() + (5 * 24 * 60 * 60 * 1000)), // 5 days later
+          name: type === 'summary' ? 'New Folder' : 'New Task',
+          start: new Date(parentTask.start),
+          end: new Date(parentTask.start.getTime() + (5 * 24 * 60 * 60 * 1000)),
           progress: 0,
           isActive: true,
           status: 'Not Started',
           assignee: 'Unassigned',
-          type: 'task',
+          type: type,
           category: activeTab,
-          depth: targetTask.depth,
-          parentId: targetTask.parentId
+          depth: parentTask.depth + 1,
+          parentId: parentTask.id,
+          isExpanded: true
       };
 
+      // Ensure parent is expanded and perhaps updated to summary if needed (though UI handles type)
+      const updatedParent = { ...parentTask, isExpanded: true };
+      
       const newTasks = [...data.tasks];
-      newTasks.splice(insertIndex, 0, newTask);
+      newTasks[targetIndex] = updatedParent; // Update parent
+      newTasks.splice(insertIndex, 0, newTask); // Insert child
       
       const recalculated = recalculateParentDates(newTasks);
       setData({ ...data, tasks: recalculated });
       setSelectedTaskId(newTask.id);
+  };
+
+  const handleAddCategory = () => {
+      if (newCategoryName.trim() && !data.categories.includes(newCategoryName.trim())) {
+          const newCat = newCategoryName.trim();
+          setData(prev => ({
+              ...prev,
+              categories: [...prev.categories, newCat]
+          }));
+          setActiveTab(newCat);
+          setNewCategoryName('');
+          setIsAddingCategory(false);
+      }
   };
 
   const handleMoveTask = (taskId: string, direction: 'up' | 'down') => {
@@ -212,7 +270,13 @@ const App: React.FC = () => {
           if (!parsed.teamMembers) {
               parsed.teamMembers = ["Security Lead", "AI Engineer", "Legal", "Ops"];
           }
+           // Backward compatibility for old JSON files without categories
+          if (!parsed.categories) {
+              parsed.categories = [...CATEGORIES];
+          }
           setData(parsed);
+          if (parsed.categories.length > 0) setActiveTab(parsed.categories[0]);
+
         } catch (err) {
           alert("Invalid JSON file");
         }
@@ -220,6 +284,36 @@ const App: React.FC = () => {
       reader.readAsText(file);
     }
   };
+
+  // Resizing Logic
+  const startResizing = useCallback(() => {
+    setIsResizing(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  const stopResizing = useCallback(() => {
+    setIsResizing(false);
+    document.body.style.cursor = 'default';
+    document.body.style.userSelect = 'auto';
+  }, []);
+
+  const resize = useCallback((mouseMoveEvent: MouseEvent) => {
+    if (isResizing) {
+        // Limit width between 300px and 1200px
+        const newWidth = Math.max(300, Math.min(mouseMoveEvent.clientX, 1200));
+        setTaskListWidth(newWidth);
+    }
+  }, [isResizing]);
+
+  useEffect(() => {
+    window.addEventListener("mousemove", resize);
+    window.addEventListener("mouseup", stopResizing);
+    return () => {
+        window.removeEventListener("mousemove", resize);
+        window.removeEventListener("mouseup", stopResizing);
+    };
+  }, [resize, stopResizing]);
 
   // Synchronize Scrolling
   useEffect(() => {
@@ -309,16 +403,22 @@ const App: React.FC = () => {
                {/* Zoom Controls */}
                <div className="flex bg-gray-100 rounded-lg p-1 border border-gray-200">
                  <button 
-                    onClick={() => setViewMode('Month')} 
-                    className={`px-3 py-1 text-xs rounded-md transition-all ${viewMode === 'Month' ? 'bg-white shadow text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}
+                    onClick={() => setViewMode('Year')} 
+                    className={`px-3 py-1 text-xs rounded-md transition-all ${viewMode === 'Year' ? 'bg-white shadow text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}
                  >
-                    Month
+                    Year
                  </button>
                  <button 
                     onClick={() => setViewMode('Quarter')} 
                     className={`px-3 py-1 text-xs rounded-md transition-all ${viewMode === 'Quarter' ? 'bg-white shadow text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}
                  >
                     Qtr
+                 </button>
+                 <button 
+                    onClick={() => setViewMode('Month')} 
+                    className={`px-3 py-1 text-xs rounded-md transition-all ${viewMode === 'Month' ? 'bg-white shadow text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}
+                 >
+                    Month
                  </button>
                </div>
                </>
@@ -340,8 +440,8 @@ const App: React.FC = () => {
       {currentView === 'Gantt' ? (
           <>
             {/* Tabs */}
-            <nav className="bg-white border-b border-gray-200 px-6 flex gap-1 overflow-x-auto no-scrollbar flex-shrink-0">
-                {CATEGORIES.map(cat => (
+            <nav className="bg-white border-b border-gray-200 px-6 flex items-center gap-1 overflow-x-auto no-scrollbar flex-shrink-0">
+                {(data.categories || []).map(cat => (
                 <button
                     key={cat}
                     onClick={() => setActiveTab(cat)}
@@ -355,33 +455,68 @@ const App: React.FC = () => {
                     {cat}
                 </button>
                 ))}
+                
+                {/* Add Pillar Button */}
+                {isAddingCategory ? (
+                    <div className="flex items-center ml-2 bg-gray-100 rounded px-2 py-1">
+                        <input 
+                            type="text" 
+                            autoFocus
+                            placeholder="Pillar Name"
+                            className="text-xs bg-transparent outline-none w-24"
+                            value={newCategoryName}
+                            onChange={(e) => setNewCategoryName(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleAddCategory();
+                                if (e.key === 'Escape') setIsAddingCategory(false);
+                            }}
+                        />
+                        <button onClick={handleAddCategory} className="text-green-600 hover:text-green-700 ml-1"><Plus size={14}/></button>
+                    </div>
+                ) : (
+                    <button 
+                        onClick={() => setIsAddingCategory(true)}
+                        className="ml-2 p-1 text-gray-400 hover:text-blue-600 transition-colors"
+                        title="Add Pillar"
+                    >
+                        <Plus size={18} />
+                    </button>
+                )}
             </nav>
 
             <div className="flex flex-1 overflow-hidden">
                 <TaskList 
-                ref={taskListRef}
-                tasks={visibleTasks}
-                onUpdateTask={handleUpdateTask}
-                onDeleteTask={handleDeleteTask}
-                onAddTask={handleAddTask}
-                onAddTaskBelow={handleAddTaskBelow}
-                onMoveTask={handleMoveTask}
-                selectedTaskId={selectedTaskId}
-                onSelectTask={setSelectedTaskId}
-                teamMembers={data.teamMembers || []}
+                  ref={taskListRef}
+                  tasks={visibleTasks}
+                  onUpdateTask={handleUpdateTask}
+                  onDeleteTask={handleDeleteTask}
+                  onAddTask={handleAddTask}
+                  onAddRootFolder={handleAddRootFolder}
+                  onAddChild={handleAddChild}
+                  onMoveTask={handleMoveTask}
+                  selectedTaskId={selectedTaskId}
+                  onSelectTask={setSelectedTaskId}
+                  teamMembers={data.teamMembers || []}
+                  width={taskListWidth}
+                />
+
+                {/* Resizer Handle */}
+                <div
+                    className="w-1 hover:w-1.5 -ml-0.5 hover:-ml-0.75 bg-gray-200 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-30 transition-all shadow-sm"
+                    onMouseDown={startResizing}
                 />
 
                 <GanttChart 
-                ref={ganttChartRef}
-                tasks={visibleTasks}
-                dependencies={data.dependencies}
-                year={data.year}
-                viewMode={viewMode}
-                onUpdateTask={handleUpdateTask}
-                onAddDependency={handleAddDependency}
-                onDeleteDependency={handleDeleteDependency}
-                selectedTaskId={selectedTaskId}
-                onSelectTask={setSelectedTaskId}
+                  ref={ganttChartRef}
+                  tasks={visibleTasks}
+                  dependencies={data.dependencies}
+                  year={data.year}
+                  viewMode={viewMode}
+                  onUpdateTask={handleUpdateTask}
+                  onAddDependency={handleAddDependency}
+                  onDeleteDependency={handleDeleteDependency}
+                  selectedTaskId={selectedTaskId}
+                  onSelectTask={setSelectedTaskId}
                 />
             </div>
 
@@ -394,7 +529,7 @@ const App: React.FC = () => {
                     <span className="flex items-center gap-1"><div className="w-3 h-3 bg-gray-200 rounded"></div> Inactive</span>
                 </div>
                 <div>
-                    Drag bars to move • Drag edges to resize • Drag dot on right to link dependencies • Click lines to delete
+                    Drag vertical divider to resize • Drag bars to move • Drag edges to resize
                 </div>
             </footer>
           </>
@@ -404,6 +539,7 @@ const App: React.FC = () => {
                 tasks={data.tasks} 
                 teamMembers={data.teamMembers || []} 
                 onUpdateTeamMembers={handleUpdateTeamMembers}
+                onUpdateTask={handleUpdateTask}
               />
           </div>
       )}

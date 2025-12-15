@@ -1,4 +1,4 @@
-import { ProjectData, Task, Dependency } from './types';
+import { ProjectData, Task, Dependency, CATEGORIES } from './types';
 
 const AIMA_DATA = {
   "Pillars": [
@@ -1100,6 +1100,9 @@ export const generateInitialData = (): ProjectData => {
   const tasks: Task[] = [];
   const dependencies: Dependency[] = [];
   let globalIdCounter = 0;
+  
+  // Extract categories from pillars
+  const categories: string[] = AIMA_DATA.Pillars.map(p => p.Pillar);
 
   const addDays = (d: Date, days: number) => {
     const n = new Date(d);
@@ -1221,6 +1224,7 @@ export const generateInitialData = (): ProjectData => {
     year: currentYear,
     tasks,
     dependencies,
-    teamMembers: ["Security Lead", "AI Engineer", "Legal", "Ops"]
+    teamMembers: ["Security Lead", "AI Engineer", "Legal", "Ops"],
+    categories
   };
 };

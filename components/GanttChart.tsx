@@ -16,6 +16,7 @@ interface GanttChartProps {
 
 const HEADER_HEIGHT = 50;
 const ROW_HEIGHT = 40;
+const DESC_HEIGHT = 100; // Extra height for description area
 const BAR_HEIGHT = 20;
 
 const GanttChart = forwardRef<HTMLDivElement, GanttChartProps>(({
@@ -34,12 +35,56 @@ const GanttChart = forwardRef<HTMLDivElement, GanttChartProps>(({
   const [dragState, setDragState] = useState<DragState>({ type: null, taskId: null, initialMouseX: 0 });
   const [tempLine, setTempLine] = useState<{ x1: number, y1: number, x2: number, y2: number } | null>(null);
 
-  const columnWidth = viewMode === 'Month' ? 2 : viewMode === 'Quarter' ? 10 : 30; // pixels per day
+  // Zoom configuration
+  // Year = fit year (approx 3px/day)
+  // Quarter = fit 3 months (approx 12px/day)
+  // Month = fit 1 month (approx 40px/day)
+  let columnWidth = 12;
+  let tickInterval = 7;
+  let showDayText = true;
+
+  switch (viewMode) {
+    case 'Year':
+      columnWidth = 3; 
+      tickInterval = 7; 
+      showDayText = false;
+      break;
+    case 'Quarter':
+      columnWidth = 12;
+      tickInterval = 7;
+      showDayText = true;
+      break;
+    case 'Month':
+      columnWidth = 40;
+      tickInterval = 1; 
+      showDayText = true;
+      break;
+  }
   
   const startDate = useMemo(() => new Date(year, 0, 1), [year]);
   const endDate = useMemo(() => new Date(year, 11, 31), [year]);
   const totalDays = diffDays(endDate, startDate) + 1;
   const chartWidth = totalDays * columnWidth;
+
+  // Pre-calculate Y coordinates and Heights for all visible tasks
+  const layout = useMemo(() => {
+      let currentY = 0;
+      const positions = new Map<string, { y: number, height: number, midY: number }>();
+      const indexToY = new Array(tasks.length).fill(0);
+      
+      tasks.forEach((task, index) => {
+          const height = task.isDescriptionExpanded ? ROW_HEIGHT + DESC_HEIGHT : ROW_HEIGHT;
+          positions.set(task.id, { 
+              y: currentY, 
+              height, 
+              midY: currentY + (ROW_HEIGHT / 2) // Bar is always in the top "row" part
+          });
+          indexToY[index] = currentY;
+          currentY += height;
+      });
+
+      return { positions, totalHeight: currentY, indexToY };
+  }, [tasks]);
 
   const dateToX = (date: Date) => diffDays(date, startDate) * columnWidth;
 
@@ -95,9 +140,11 @@ const GanttChart = forwardRef<HTMLDivElement, GanttChartProps>(({
          }
        }
     } else if (dragState.type === 'create-link') {
-       const taskIndex = tasks.findIndex(t => t.id === dragState.taskId);
+       const taskPos = layout.positions.get(dragState.taskId);
+       if (!taskPos) return;
+
        const startX = dateToX(task.end) + 10; 
-       const startY = (taskIndex * ROW_HEIGHT) + (ROW_HEIGHT / 2);
+       const startY = taskPos.midY;
        
        const rect = (ref as React.RefObject<HTMLDivElement>)?.current?.getBoundingClientRect();
        const scrollLeft = (ref as React.RefObject<HTMLDivElement>)?.current?.scrollLeft || 0;
@@ -122,20 +169,30 @@ const GanttChart = forwardRef<HTMLDivElement, GanttChartProps>(({
 
         if(rect) {
              const mouseY = e.clientY - rect.top + scrollTop;
-             const targetRowIndex = Math.floor(mouseY / ROW_HEIGHT);
+             
+             // Find target row based on mouseY
+             // Since rows have variable heights, we search in layout.positions
+             let targetTask: Task | null = null;
+             
+             // Optimization: binary search could be used, but simple loop is fine for < 1000 tasks
+             for (let i = 0; i < tasks.length; i++) {
+                 const t = tasks[i];
+                 const pos = layout.positions.get(t.id);
+                 if (pos && mouseY >= pos.y && mouseY < (pos.y + pos.height)) {
+                     targetTask = t;
+                     break;
+                 }
+             }
 
-             if (targetRowIndex >= 0 && targetRowIndex < tasks.length) {
-                 const targetTask = tasks[targetRowIndex];
-                 if (targetTask.id !== dragState.taskId) {
-                     const exists = dependencies.some(d => d.fromTaskId === dragState.taskId && d.toTaskId === targetTask.id);
-                     if (!exists) {
-                         onAddDependency({
-                             id: `dep-${Date.now()}`,
-                             fromTaskId: dragState.taskId!,
-                             toTaskId: targetTask.id,
-                             type: 'FinishToStart'
-                         });
-                     }
+             if (targetTask && targetTask.id !== dragState.taskId) {
+                 const exists = dependencies.some(d => d.fromTaskId === dragState.taskId && d.toTaskId === targetTask.id);
+                 if (!exists) {
+                     onAddDependency({
+                         id: `dep-${Date.now()}`,
+                         fromTaskId: dragState.taskId!,
+                         toTaskId: targetTask.id,
+                         type: 'FinishToStart'
+                     });
                  }
              }
         }
@@ -164,13 +221,13 @@ const GanttChart = forwardRef<HTMLDivElement, GanttChartProps>(({
       );
     }
     
-    for (let i = 0; i <= totalDays; i += 7) {
+    for (let i = 0; i <= totalDays; i += tickInterval) {
        const x = i * columnWidth;
        ticks.push(
          <line key={`tick-${i}`} x1={x} y1={25} x2={x} y2={HEADER_HEIGHT} stroke="#e2e8f0" />
        );
        const date = addDays(startDate, i);
-       if (columnWidth > 5) {
+       if (showDayText) {
          ticks.push(
            <text key={`txt-${i}`} x={x + 5} y={45} fontSize="10" fill="#94a3b8">
              {date.getDate()}
@@ -183,15 +240,24 @@ const GanttChart = forwardRef<HTMLDivElement, GanttChartProps>(({
 
   const renderGrid = () => {
     const lines = [];
+    
+    // Fine grid (based on ticks)
+    for (let i = 0; i <= totalDays; i += tickInterval) {
+         const x = i * columnWidth;
+         lines.push(<line key={`grid-tick-${i}`} x1={x} y1={0} x2={x} y2={layout.totalHeight} stroke="#f8fafc" />);
+    }
+
+    // Monthly lines (stronger)
     for (let m = 0; m < 12; m++) {
          const d = new Date(year, m, 1);
          const x = dateToX(d);
-         lines.push(<line key={`grid-${m}`} x1={x} y1={0} x2={x} y2={tasks.length * ROW_HEIGHT} stroke="#f1f5f9" strokeDasharray="4 4" />);
+         lines.push(<line key={`grid-${m}`} x1={x} y1={0} x2={x} y2={layout.totalHeight} stroke="#f1f5f9" strokeDasharray="4 4" />);
     }
+
     const today = new Date();
     if (today.getFullYear() === year) {
         const x = dateToX(today);
-        lines.push(<line key="today" x1={x} y1={0} x2={x} y2={tasks.length * ROW_HEIGHT} stroke="red" strokeWidth="1" opacity="0.5" />);
+        lines.push(<line key="today" x1={x} y1={0} x2={x} y2={layout.totalHeight} stroke="red" strokeWidth="1" opacity="0.5" />);
     }
     return <g>{lines}</g>;
   };
@@ -202,13 +268,15 @@ const GanttChart = forwardRef<HTMLDivElement, GanttChartProps>(({
          const toTask = tasks.find(t => t.id === dep.toTaskId);
          if (!fromTask || !toTask) return null;
 
-         const fromIdx = tasks.indexOf(fromTask);
-         const toIdx = tasks.indexOf(toTask);
+         const fromPos = layout.positions.get(fromTask.id);
+         const toPos = layout.positions.get(toTask.id);
          
+         if (!fromPos || !toPos) return null;
+
          const startX = dateToX(fromTask.end);
-         const startY = (fromIdx * ROW_HEIGHT) + (ROW_HEIGHT / 2);
+         const startY = fromPos.midY;
          const endX = dateToX(toTask.start);
-         const endY = (toIdx * ROW_HEIGHT) + (ROW_HEIGHT / 2);
+         const endY = toPos.midY;
 
          const midX = (startX + endX) / 2;
          const path = startX < endX 
@@ -274,7 +342,7 @@ const GanttChart = forwardRef<HTMLDivElement, GanttChartProps>(({
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
       >
-        <svg width={Math.max(chartWidth, 1000)} height={Math.max(tasks.length * ROW_HEIGHT, 1)}>
+        <svg width={Math.max(chartWidth, 1000)} height={Math.max(layout.totalHeight, 1)}>
           <defs>
             <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
               <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8" />
@@ -289,9 +357,12 @@ const GanttChart = forwardRef<HTMLDivElement, GanttChartProps>(({
 
           <g>
             {tasks.map((task, index) => {
+              const pos = layout.positions.get(task.id);
+              if (!pos) return null;
+
               const x = dateToX(task.start);
               const w = Math.max(dateToX(task.end) - x, 4);
-              const y = index * ROW_HEIGHT + (ROW_HEIGHT - BAR_HEIGHT) / 2;
+              const y = pos.y + (ROW_HEIGHT - BAR_HEIGHT) / 2; // Bar centers within the top 40px row part
               const isMilestone = task.type === 'milestone';
               const isSummary = task.type === 'summary';
               const isCrit = criticalPath.has(task.id);
@@ -303,9 +374,9 @@ const GanttChart = forwardRef<HTMLDivElement, GanttChartProps>(({
                 <g key={task.id} className="group">
                   <rect 
                       x={0} 
-                      y={index * ROW_HEIGHT} 
+                      y={pos.y} 
                       width={Math.max(chartWidth, 1000)} 
-                      height={ROW_HEIGHT} 
+                      height={pos.height} 
                       fill={selectedTaskId === task.id ? "#eff6ff" : "transparent"} 
                       className="hover:fill-gray-50 transition-colors"
                   />
