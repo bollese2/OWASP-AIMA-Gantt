@@ -279,6 +279,8 @@ const GanttChart = forwardRef<HTMLDivElement, GanttChartProps>(({
          const endY = toPos.midY;
 
          const midX = (startX + endX) / 2;
+         const midY = (startY + endY) / 2;
+
          const path = startX < endX 
             ? `M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`
             : `M ${startX} ${startY} L ${startX + 10} ${startY} L ${startX + 10} ${startY + (ROW_HEIGHT/2)} L ${endX - 10} ${endY - (ROW_HEIGHT/2)} L ${endX - 10} ${endY} L ${endX} ${endY}`;
@@ -286,11 +288,25 @@ const GanttChart = forwardRef<HTMLDivElement, GanttChartProps>(({
          const isCrit = criticalPath.has(fromTask.id) && criticalPath.has(toTask.id);
 
          return (
-             <g key={dep.id} onClick={() => onDeleteDependency(dep.id)} className="cursor-pointer group">
-                 {/* Invisible thick line for easier clicking */}
-                 <path d={path} fill="none" stroke="transparent" strokeWidth="12" />
+             <g key={dep.id} className="group">
+                 {/* Invisible thick line for easier interaction */}
+                 <path d={path} fill="none" stroke="transparent" strokeWidth="20" className="cursor-pointer" />
                  {/* Visible line */}
-                 <path d={path} fill="none" stroke={isCrit ? "#ef4444" : "#cbd5e1"} strokeWidth="2" markerEnd="url(#arrowhead)" className="group-hover:stroke-blue-500" />
+                 <path d={path} fill="none" stroke={isCrit ? "#ef4444" : "#cbd5e1"} strokeWidth="2" markerEnd="url(#arrowhead)" className="group-hover:stroke-blue-500 transition-colors pointer-events-none" />
+                 
+                 {/* Delete Icon Button at Midpoint */}
+                 <foreignObject x={midX - 12} y={midY - 12} width={24} height={24} className="opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto">
+                     <div 
+                        onClick={(e) => { e.stopPropagation(); onDeleteDependency(dep.id); }}
+                        className="w-6 h-6 bg-white rounded-full border border-gray-300 shadow-sm flex items-center justify-center hover:bg-red-50 hover:border-red-500 hover:text-red-500 cursor-pointer"
+                        title="Delete Dependency"
+                     >
+                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                             <line x1="18" y1="6" x2="6" y2="18"></line>
+                             <line x1="6" y1="6" x2="18" y2="18"></line>
+                         </svg>
+                     </div>
+                 </foreignObject>
              </g>
          );
      });
@@ -350,10 +366,6 @@ const GanttChart = forwardRef<HTMLDivElement, GanttChartProps>(({
           </defs>
 
           {renderGrid()}
-          {renderDependencies()}
-          {tempLine && (
-              <line x1={tempLine.x1} y1={tempLine.y1} x2={tempLine.x2} y2={tempLine.y2} stroke="#3b82f6" strokeWidth="2" strokeDasharray="4" />
-          )}
 
           <g>
             {tasks.map((task, index) => {
@@ -466,6 +478,13 @@ const GanttChart = forwardRef<HTMLDivElement, GanttChartProps>(({
               );
             })}
           </g>
+
+          {/* Dependencies rendered AFTER tasks to be on the top layer */}
+          {renderDependencies()}
+          {tempLine && (
+              <line x1={tempLine.x1} y1={tempLine.y1} x2={tempLine.x2} y2={tempLine.y2} stroke="#3b82f6" strokeWidth="2" strokeDasharray="4" />
+          )}
+
         </svg>
       </div>
     </div>

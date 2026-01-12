@@ -5,7 +5,7 @@ import { getVisibleTasks, recalculateParentDates, getTaskBlockRange } from './ut
 import TaskList from './components/TaskList';
 import GanttChart from './components/GanttChart';
 import Dashboard from './components/Dashboard';
-import { Download, Upload, ZoomIn, ZoomOut, RotateCcw, Plus, Calendar, ShieldCheck, LayoutDashboard, BarChart, FilePlus, FolderPlus } from 'lucide-react';
+import { Download, Upload, ZoomIn, ZoomOut, RotateCcw, Plus, Calendar, ShieldCheck, LayoutDashboard, BarChart, FilePlus, FolderPlus, X, AlertTriangle } from 'lucide-react';
 
 const App: React.FC = () => {
   const [data, setData] = useState<ProjectData>(generateInitialData());
@@ -18,9 +18,10 @@ const App: React.FC = () => {
   const [taskListWidth, setTaskListWidth] = useState(870);
   const [isResizing, setIsResizing] = useState(false);
 
-  // New Category State
+  // Pillar Management State
   const [newCategoryName, setNewCategoryName] = useState('');
   const [isAddingCategory, setIsAddingCategory] = useState(false);
+  const [pillarToDelete, setPillarToDelete] = useState<string | null>(null);
 
   // Scroll Sync Refs
   const taskListRef = useRef<HTMLDivElement>(null);
@@ -31,10 +32,10 @@ const App: React.FC = () => {
   // Ensure initial data has categories if loaded from older JSON
   useEffect(() => {
      if (!data.categories || data.categories.length === 0) {
-        // Fallback or init
         const cats = Array.from(new Set(data.tasks.map(t => t.category)));
-        setData(prev => ({ ...prev, categories: cats.length > 0 ? cats : [...CATEGORIES] }));
-        if (cats.length > 0) setActiveTab(cats[0]);
+        const finalCats = cats.length > 0 ? cats : [...CATEGORIES];
+        setData(prev => ({ ...prev, categories: finalCats }));
+        if (finalCats.length > 0) setActiveTab(finalCats[0]);
      } else if (!data.categories.includes(activeTab)) {
          setActiveTab(data.categories[0]);
      }
@@ -51,12 +52,8 @@ const App: React.FC = () => {
   
   // Handlers
   const handleUpdateTask = (updatedTask: Task) => {
-    // 1. Update the specific task
     const newTasks = data.tasks.map(t => t.id === updatedTask.id ? updatedTask : t);
-    
-    // 2. Recalculate parent dates based on the change
     const recalculatedTasks = recalculateParentDates(newTasks);
-    
     setData({ ...data, tasks: recalculatedTasks });
   };
 
@@ -79,10 +76,7 @@ const App: React.FC = () => {
 
     const newTasks = data.tasks.filter(t => !tasksToDelete.has(t.id));
     const newDeps = data.dependencies.filter(d => !tasksToDelete.has(d.fromTaskId) && !tasksToDelete.has(d.toTaskId));
-    
-    // Recalculate after deletion
     const finalTasks = recalculateParentDates(newTasks);
-    
     setData({ ...data, tasks: finalTasks, dependencies: newDeps });
   };
 
@@ -100,9 +94,7 @@ const App: React.FC = () => {
       category: activeTab,
       depth: 0
     };
-    
-    const newTasks = [...data.tasks, newTask];
-    setData({ ...data, tasks: newTasks });
+    setData({ ...data, tasks: [...data.tasks, newTask] });
     setSelectedTaskId(newTask.id);
   };
 
@@ -121,9 +113,7 @@ const App: React.FC = () => {
         depth: 0,
         isExpanded: true
       };
-      
-      const newTasks = [...data.tasks, newTask];
-      setData({ ...data, tasks: newTasks });
+      setData({ ...data, tasks: [...data.tasks, newTask] });
       setSelectedTaskId(newTask.id);
   };
 
@@ -132,7 +122,7 @@ const App: React.FC = () => {
       if (targetIndex === -1) return;
 
       const parentTask = data.tasks[targetIndex];
-      const insertIndex = targetIndex + 1; // Insert immediately after parent
+      const insertIndex = targetIndex + 1;
 
       const newTask: Task = {
           id: `task-${Date.now()}`,
@@ -150,12 +140,9 @@ const App: React.FC = () => {
           isExpanded: true
       };
 
-      // Ensure parent is expanded and perhaps updated to summary if needed (though UI handles type)
-      const updatedParent = { ...parentTask, isExpanded: true };
-      
       const newTasks = [...data.tasks];
-      newTasks[targetIndex] = updatedParent; // Update parent
-      newTasks.splice(insertIndex, 0, newTask); // Insert child
+      newTasks[targetIndex] = { ...parentTask, isExpanded: true };
+      newTasks.splice(insertIndex, 0, newTask);
       
       const recalculated = recalculateParentDates(newTasks);
       setData({ ...data, tasks: recalculated });
@@ -175,60 +162,72 @@ const App: React.FC = () => {
       }
   };
 
+  const confirmDeleteCategory = () => {
+      if (!pillarToDelete) return;
+      
+      const categoryName = pillarToDelete;
+      const updatedCategories = data.categories.filter(c => c !== categoryName);
+      
+      if (updatedCategories.length === 0) {
+          setPillarToDelete(null);
+          alert("You must have at least one pillar.");
+          return;
+      }
+
+      const tasksToDelete = data.tasks.filter(t => t.category === categoryName).map(t => t.id);
+      const taskIdsSet = new Set(tasksToDelete);
+
+      const updatedTasks = data.tasks.filter(t => t.category !== categoryName);
+      const updatedDependencies = data.dependencies.filter(d => !taskIdsSet.has(d.fromTaskId) && !taskIdsSet.has(d.toTaskId));
+
+      setData(prev => ({
+          ...prev,
+          categories: updatedCategories,
+          tasks: updatedTasks,
+          dependencies: updatedDependencies
+      }));
+
+      if (activeTab === categoryName) {
+          setActiveTab(updatedCategories[0]);
+      }
+      setPillarToDelete(null);
+  };
+
   const handleMoveTask = (taskId: string, direction: 'up' | 'down') => {
       const tasks = [...data.tasks];
       const taskIndex = tasks.findIndex(t => t.id === taskId);
       if (taskIndex === -1) return;
 
       const task = tasks[taskIndex];
-      const block = getTaskBlockRange(tasks, taskIndex); // {start, end} inclusive
+      const block = getTaskBlockRange(tasks, taskIndex);
 
       if (direction === 'up') {
-          // Find previous sibling block
-          // Iterate backwards from block.start - 1
           let prevSiblingIndex = -1;
           for(let i = block.start - 1; i >= 0; i--) {
-              // Ensure we stay within category (though indices are global, category matters for UI)
               if (tasks[i].category !== task.category) break; 
-              
               if(tasks[i].depth === task.depth && tasks[i].parentId === task.parentId) {
                   prevSiblingIndex = i;
                   break;
               }
-              // If we hit a lower depth (parent), we can't move up further
               if(tasks[i].depth < task.depth) break;
           }
 
           if(prevSiblingIndex !== -1) {
               const prevBlock = getTaskBlockRange(tasks, prevSiblingIndex);
-              // Swap: [PrevBlock] [CurrentBlock] -> [CurrentBlock] [PrevBlock]
-              
-              // 1. Extract Current Block
               const currentBlockItems = tasks.splice(block.start, (block.end - block.start + 1));
-              
-              // 2. Insert at PrevBlock start
               tasks.splice(prevBlock.start, 0, ...currentBlockItems);
           }
       } else {
-          // Find next sibling block
           const nextSiblingIndex = block.end + 1;
           if (nextSiblingIndex < tasks.length) {
               const potentialNext = tasks[nextSiblingIndex];
-              // Must be same parent/depth
               if (potentialNext.depth === task.depth && potentialNext.parentId === task.parentId && potentialNext.category === task.category) {
                    const nextBlock = getTaskBlockRange(tasks, nextSiblingIndex);
-                   
-                   // Swap: [CurrentBlock] [NextBlock] -> [NextBlock] [CurrentBlock]
-                   
-                   // 1. Extract Next Block
                    const nextBlockItems = tasks.splice(nextBlock.start, (nextBlock.end - nextBlock.start + 1));
-
-                   // 2. Insert before current block
                    tasks.splice(block.start, 0, ...nextBlockItems);
               }
           }
       }
-      
       setData({ ...data, tasks });
   };
 
@@ -260,23 +259,19 @@ const App: React.FC = () => {
         try {
           const content = e.target?.result as string;
           const parsed = JSON.parse(content);
-          // Ensure dates are parsed back to Date objects
           parsed.tasks = parsed.tasks.map((t: any) => ({
             ...t,
             start: new Date(t.start),
             end: new Date(t.end)
           }));
-          // Backward compatibility for old JSON files without teamMembers
           if (!parsed.teamMembers) {
               parsed.teamMembers = ["Security Lead", "AI Engineer", "Legal", "Ops"];
           }
-           // Backward compatibility for old JSON files without categories
           if (!parsed.categories) {
               parsed.categories = [...CATEGORIES];
           }
           setData(parsed);
           if (parsed.categories.length > 0) setActiveTab(parsed.categories[0]);
-
         } catch (err) {
           alert("Invalid JSON file");
         }
@@ -285,7 +280,6 @@ const App: React.FC = () => {
     }
   };
 
-  // Resizing Logic
   const startResizing = useCallback(() => {
     setIsResizing(true);
     document.body.style.cursor = 'col-resize';
@@ -300,7 +294,6 @@ const App: React.FC = () => {
 
   const resize = useCallback((mouseMoveEvent: MouseEvent) => {
     if (isResizing) {
-        // Limit width between 300px and 1200px
         const newWidth = Math.max(300, Math.min(mouseMoveEvent.clientX, 1200));
         setTaskListWidth(newWidth);
     }
@@ -315,11 +308,9 @@ const App: React.FC = () => {
     };
   }, [resize, stopResizing]);
 
-  // Synchronize Scrolling
   useEffect(() => {
     const leftEl = taskListRef.current;
     const rightEl = ganttChartRef.current;
-
     if (!leftEl || !rightEl) return;
 
     const handleLeftScroll = () => {
@@ -349,6 +340,40 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen bg-gray-100 text-slate-800 font-sans">
+      {/* Pillar Deletion Confirmation Modal */}
+      {pillarToDelete && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white rounded-xl shadow-2xl p-6 w-[400px] border border-gray-200 animate-in zoom-in-95 duration-200">
+                <div className="flex items-center gap-4 mb-4">
+                    <div className="p-3 bg-red-100 rounded-full text-red-600">
+                        <AlertTriangle size={24} />
+                    </div>
+                    <div>
+                        <h3 className="text-lg font-bold text-gray-900">Delete Pillar?</h3>
+                        <p className="text-sm text-gray-500">Are you sure you want to delete the pillar "<span className="font-semibold text-gray-700">{pillarToDelete}</span>"?</p>
+                    </div>
+                </div>
+                <p className="text-xs bg-red-50 text-red-700 p-3 rounded border border-red-100 mb-6 italic">
+                    All associated tasks and dependencies within this pillar will be permanently removed.
+                </p>
+                <div className="flex justify-end gap-3">
+                    <button 
+                        onClick={() => setPillarToDelete(null)}
+                        className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                    >
+                        Cancel
+                    </button>
+                    <button 
+                        onClick={confirmDeleteCategory}
+                        className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm transition-colors"
+                    >
+                        Delete Pillar
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+
       {/* Top Header */}
       <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between shadow-sm z-20 flex-shrink-0">
         <div className="flex items-center gap-3">
@@ -385,7 +410,6 @@ const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-4">
-           {/* Year Control (Only for Gantt) */}
            {currentView === 'Gantt' && (
                <>
                <div className="flex items-center bg-gray-50 border border-gray-200 rounded-md px-2 py-1">
@@ -397,37 +421,16 @@ const App: React.FC = () => {
                     className="w-16 bg-transparent text-sm font-semibold outline-none"
                   />
                </div>
-
                <div className="h-6 w-px bg-gray-200 mx-2"></div>
-
-               {/* Zoom Controls */}
                <div className="flex bg-gray-100 rounded-lg p-1 border border-gray-200">
-                 <button 
-                    onClick={() => setViewMode('Year')} 
-                    className={`px-3 py-1 text-xs rounded-md transition-all ${viewMode === 'Year' ? 'bg-white shadow text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}
-                 >
-                    Year
-                 </button>
-                 <button 
-                    onClick={() => setViewMode('Quarter')} 
-                    className={`px-3 py-1 text-xs rounded-md transition-all ${viewMode === 'Quarter' ? 'bg-white shadow text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}
-                 >
-                    Qtr
-                 </button>
-                 <button 
-                    onClick={() => setViewMode('Month')} 
-                    className={`px-3 py-1 text-xs rounded-md transition-all ${viewMode === 'Month' ? 'bg-white shadow text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}
-                 >
-                    Month
-                 </button>
+                 <button onClick={() => setViewMode('Year')} className={`px-3 py-1 text-xs rounded-md transition-all ${viewMode === 'Year' ? 'bg-white shadow text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}>Year</button>
+                 <button onClick={() => setViewMode('Quarter')} className={`px-3 py-1 text-xs rounded-md transition-all ${viewMode === 'Quarter' ? 'bg-white shadow text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}>Qtr</button>
+                 <button onClick={() => setViewMode('Month')} className={`px-3 py-1 text-xs rounded-md transition-all ${viewMode === 'Month' ? 'bg-white shadow text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}>Month</button>
                </div>
                </>
            )}
-
            <div className="flex gap-2">
-             <button onClick={handleDownload} className="p-2 text-gray-600 hover:bg-gray-100 rounded-full transition-colors" title="Download JSON">
-                <Download size={18} />
-             </button>
+             <button onClick={handleDownload} className="p-2 text-gray-600 hover:bg-gray-100 rounded-full transition-colors" title="Download JSON"><Download size={18} /></button>
              <label className="p-2 text-gray-600 hover:bg-gray-100 rounded-full transition-colors cursor-pointer" title="Upload JSON">
                 <Upload size={18} />
                 <input type="file" onChange={handleUpload} className="hidden" accept=".json" />
@@ -436,27 +439,35 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content */}
       {currentView === 'Gantt' ? (
           <>
-            {/* Tabs */}
             <nav className="bg-white border-b border-gray-200 px-6 flex items-center gap-1 overflow-x-auto no-scrollbar flex-shrink-0">
                 {(data.categories || []).map(cat => (
-                <button
-                    key={cat}
-                    onClick={() => setActiveTab(cat)}
-                    className={`
-                    px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap
-                    ${activeTab === cat 
-                        ? 'border-blue-600 text-blue-600 bg-blue-50/50' 
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'}
-                    `}
-                >
-                    {cat}
-                </button>
+                <div key={cat} className="relative group flex items-center h-full">
+                    <div
+                        onClick={() => setActiveTab(cat)}
+                        className={`
+                        pl-4 pr-3 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 cursor-pointer h-full
+                        ${activeTab === cat 
+                            ? 'border-blue-600 text-blue-600 bg-blue-50/50' 
+                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'}
+                        `}
+                    >
+                        {cat}
+                        <button 
+                            onClick={(e) => { 
+                                e.stopPropagation(); 
+                                setPillarToDelete(cat);
+                            }}
+                            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 hover:text-red-600 rounded-full transition-all flex items-center justify-center"
+                            title={`Delete Pillar: ${cat}`}
+                        >
+                            <X size={12} />
+                        </button>
+                    </div>
+                </div>
                 ))}
                 
-                {/* Add Pillar Button */}
                 {isAddingCategory ? (
                     <div className="flex items-center ml-2 bg-gray-100 rounded px-2 py-1">
                         <input 
@@ -499,13 +510,10 @@ const App: React.FC = () => {
                   teamMembers={data.teamMembers || []}
                   width={taskListWidth}
                 />
-
-                {/* Resizer Handle */}
                 <div
                     className="w-1 hover:w-1.5 -ml-0.5 hover:-ml-0.75 bg-gray-200 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-30 transition-all shadow-sm"
                     onMouseDown={startResizing}
                 />
-
                 <GanttChart 
                   ref={ganttChartRef}
                   tasks={visibleTasks}
@@ -528,9 +536,7 @@ const App: React.FC = () => {
                     <span className="flex items-center gap-1"><div className="w-3 h-3 bg-red-400 rounded"></div> Critical Path</span>
                     <span className="flex items-center gap-1"><div className="w-3 h-3 bg-gray-200 rounded"></div> Inactive</span>
                 </div>
-                <div>
-                    Drag vertical divider to resize • Drag bars to move • Drag edges to resize
-                </div>
+                <div>Drag divider to resize • Hover over tabs to see delete option</div>
             </footer>
           </>
       ) : (
