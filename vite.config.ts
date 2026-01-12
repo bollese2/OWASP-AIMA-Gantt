@@ -5,7 +5,9 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
-      base: '/OWASP-AIMA-Gantt/',
+      // Base path for deployment - can be overridden via BASE_PATH env variable
+      // Defaults to /OWASP-AIMA-Gantt/ for GitHub/GitLab Pages
+      base: env.BASE_PATH || '/OWASP-AIMA-Gantt/',
       server: {
         port: 3000,
         host: '0.0.0.0',

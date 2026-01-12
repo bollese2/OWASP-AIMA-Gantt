@@ -12,10 +12,11 @@ pages:
   script:
     - npm install
     - npm run build
+    - rm -rf public
     - mv dist public  # GitLab Pages expects the 'public' directory
   artifacts:
     paths:
       - public
-  only:
-    - main
-    - tags
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_TAG
