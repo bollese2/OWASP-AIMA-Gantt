@@ -25,3 +25,7 @@ This application is also configured for GitLab Pages deployment.
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+## Branch Protection
+
+The main branch is protected from direct pushes. All changes must go through pull requests. See [`.github/rulesets/README.md`](.github/rulesets/README.md) for details on the branch protection configuration and how to apply it.
