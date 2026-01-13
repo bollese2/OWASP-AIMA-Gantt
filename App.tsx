@@ -24,6 +24,7 @@ const App: React.FC = () => {
   const [pillarToDelete, setPillarToDelete] = useState<string | null>(null);
   const [pillarToRename, setPillarToRename] = useState<string | null>(null);
   const [renamePillarValue, setRenamePillarValue] = useState('');
+  const [showLoadOWASPConfirm, setShowLoadOWASPConfirm] = useState(false);
 
   // Scroll Sync Refs
   const taskListRef = useRef<HTMLDivElement>(null);
@@ -318,9 +319,14 @@ const App: React.FC = () => {
   };
 
   const handleLoadOWASPAIMA = () => {
+    setShowLoadOWASPConfirm(true);
+  };
+
+  const confirmLoadOWASPAIMA = () => {
     const owaspData = generateInitialData();
     setData(owaspData);
     if (owaspData.categories.length > 0) setActiveTab(owaspData.categories[0]);
+    setShowLoadOWASPConfirm(false);
   };
 
   const startResizing = useCallback(() => {
@@ -411,6 +417,40 @@ const App: React.FC = () => {
                         className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm transition-colors"
                     >
                         Delete Pillar
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* Load OWASP AIMA Confirmation Modal */}
+      {showLoadOWASPConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white rounded-xl shadow-2xl p-6 w-[400px] border border-gray-200 animate-in zoom-in-95 duration-200">
+                <div className="flex items-center gap-4 mb-4">
+                    <div className="p-3 bg-blue-100 rounded-full text-blue-600">
+                        <ShieldCheck size={24} />
+                    </div>
+                    <div>
+                        <h3 className="text-lg font-bold text-gray-900">Load OWASP AIMA Project?</h3>
+                        <p className="text-sm text-gray-500">Are you sure you want to load OWASP AIMA project?</p>
+                    </div>
+                </div>
+                <p className="text-xs bg-yellow-50 text-yellow-800 p-3 rounded border border-yellow-100 mb-6 italic">
+                    Any previous work will be overwritten.
+                </p>
+                <div className="flex justify-end gap-3">
+                    <button 
+                        onClick={() => setShowLoadOWASPConfirm(false)}
+                        className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                    >
+                        Cancel
+                    </button>
+                    <button 
+                        onClick={confirmLoadOWASPAIMA}
+                        className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors"
+                    >
+                        Load Project
                     </button>
                 </div>
             </div>
