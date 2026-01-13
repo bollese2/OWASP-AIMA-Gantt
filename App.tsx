@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { ProjectData, Task, CATEGORIES, Category, ViewMode, Dependency } from './types';
-import { generateInitialData } from './constants';
+import { generateInitialData, generateEmptyData } from './constants';
 import { getVisibleTasks, recalculateParentDates, getTaskBlockRange } from './utils';
 import TaskList from './components/TaskList';
 import GanttChart from './components/GanttChart';
 import Dashboard from './components/Dashboard';
-import { Download, Upload, ZoomIn, ZoomOut, RotateCcw, Plus, Calendar, ShieldCheck, LayoutDashboard, BarChart, FilePlus, FolderPlus, X, AlertTriangle } from 'lucide-react';
+import { Download, Upload, ZoomIn, ZoomOut, RotateCcw, Plus, Calendar, ShieldCheck, LayoutDashboard, BarChart, FilePlus, FolderPlus, X, AlertTriangle, Edit2, Check } from 'lucide-react';
 
 const App: React.FC = () => {
-  const [data, setData] = useState<ProjectData>(generateInitialData());
-  const [activeTab, setActiveTab] = useState<string>(data.categories?.[0] || "Responsible AI");
+  const [data, setData] = useState<ProjectData>(generateEmptyData());
+  const [activeTab, setActiveTab] = useState<string>(data.categories?.[0] || "General");
   const [viewMode, setViewMode] = useState<ViewMode>('Year');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<'Gantt' | 'Dashboard'>('Gantt');
@@ -22,6 +22,8 @@ const App: React.FC = () => {
   const [newCategoryName, setNewCategoryName] = useState('');
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [pillarToDelete, setPillarToDelete] = useState<string | null>(null);
+  const [pillarToRename, setPillarToRename] = useState<string | null>(null);
+  const [renamePillarValue, setRenamePillarValue] = useState('');
 
   // Scroll Sync Refs
   const taskListRef = useRef<HTMLDivElement>(null);
@@ -193,6 +195,41 @@ const App: React.FC = () => {
       setPillarToDelete(null);
   };
 
+  const handleRenameCategory = () => {
+      if (!pillarToRename || !renamePillarValue.trim()) return;
+      
+      const oldName = pillarToRename;
+      const newName = renamePillarValue.trim();
+      
+      // Check if new name already exists
+      if (oldName !== newName && data.categories.includes(newName)) {
+          alert("A pillar with this name already exists.");
+          return;
+      }
+      
+      // Update category name in categories array
+      const updatedCategories = data.categories.map(c => c === oldName ? newName : c);
+      
+      // Update category name in all tasks
+      const updatedTasks = data.tasks.map(t => 
+          t.category === oldName ? { ...t, category: newName } : t
+      );
+      
+      setData(prev => ({
+          ...prev,
+          categories: updatedCategories,
+          tasks: updatedTasks
+      }));
+      
+      // Update active tab if it was the renamed category
+      if (activeTab === oldName) {
+          setActiveTab(newName);
+      }
+      
+      setPillarToRename(null);
+      setRenamePillarValue('');
+  };
+
   const handleMoveTask = (taskId: string, direction: 'up' | 'down') => {
       const tasks = [...data.tasks];
       const taskIndex = tasks.findIndex(t => t.id === taskId);
@@ -278,6 +315,12 @@ const App: React.FC = () => {
       };
       reader.readAsText(file);
     }
+  };
+
+  const handleLoadOWASPAIMA = () => {
+    const owaspData = generateInitialData();
+    setData(owaspData);
+    if (owaspData.categories.length > 0) setActiveTab(owaspData.categories[0]);
   };
 
   const startResizing = useCallback(() => {
@@ -430,6 +473,14 @@ const App: React.FC = () => {
                </>
            )}
            <div className="flex gap-2">
+             <button 
+               onClick={handleLoadOWASPAIMA} 
+               className="px-3 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm flex items-center gap-2" 
+               title="Load OWASP AIMA Project"
+             >
+               <ShieldCheck size={16} />
+               Load OWASP AIMA
+             </button>
              <button onClick={handleDownload} className="p-2 text-gray-600 hover:bg-gray-100 rounded-full transition-colors" title="Download JSON"><Download size={18} /></button>
              <label className="p-2 text-gray-600 hover:bg-gray-100 rounded-full transition-colors cursor-pointer" title="Upload JSON">
                 <Upload size={18} />
@@ -444,27 +495,76 @@ const App: React.FC = () => {
             <nav className="bg-white border-b border-gray-200 px-6 flex items-center gap-1 overflow-x-auto no-scrollbar flex-shrink-0">
                 {(data.categories || []).map(cat => (
                 <div key={cat} className="relative group flex items-center h-full">
-                    <div
-                        onClick={() => setActiveTab(cat)}
-                        className={`
-                        pl-4 pr-3 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 cursor-pointer h-full
-                        ${activeTab === cat 
-                            ? 'border-blue-600 text-blue-600 bg-blue-50/50' 
-                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'}
-                        `}
-                    >
-                        {cat}
-                        <button 
-                            onClick={(e) => { 
-                                e.stopPropagation(); 
-                                setPillarToDelete(cat);
-                            }}
-                            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 hover:text-red-600 rounded-full transition-all flex items-center justify-center"
-                            title={`Delete Pillar: ${cat}`}
+                    {pillarToRename === cat ? (
+                        <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border-b-2 border-blue-600">
+                            <input 
+                                type="text" 
+                                autoFocus
+                                value={renamePillarValue}
+                                onChange={(e) => setRenamePillarValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleRenameCategory();
+                                    if (e.key === 'Escape') {
+                                        setPillarToRename(null);
+                                        setRenamePillarValue('');
+                                    }
+                                }}
+                                className="text-sm font-medium bg-white border border-blue-300 rounded px-2 py-1 outline-none focus:ring-2 focus:ring-blue-500 w-32"
+                            />
+                            <button 
+                                onClick={handleRenameCategory}
+                                className="p-1 hover:bg-green-100 text-green-600 rounded-full transition-all"
+                                title="Confirm Rename"
+                            >
+                                <Check size={14} />
+                            </button>
+                            <button 
+                                onClick={() => {
+                                    setPillarToRename(null);
+                                    setRenamePillarValue('');
+                                }}
+                                className="p-1 hover:bg-red-100 text-red-600 rounded-full transition-all"
+                                title="Cancel"
+                            >
+                                <X size={14} />
+                            </button>
+                        </div>
+                    ) : (
+                        <div
+                            onClick={() => setActiveTab(cat)}
+                            className={`
+                            pl-4 pr-3 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 cursor-pointer h-full
+                            ${activeTab === cat 
+                                ? 'border-blue-600 text-blue-600 bg-blue-50/50' 
+                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'}
+                            `}
                         >
-                            <X size={12} />
-                        </button>
-                    </div>
+                            {cat}
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+                                <button 
+                                    onClick={(e) => { 
+                                        e.stopPropagation(); 
+                                        setPillarToRename(cat);
+                                        setRenamePillarValue(cat);
+                                    }}
+                                    className="p-1 hover:bg-blue-100 hover:text-blue-600 rounded-full transition-all flex items-center justify-center"
+                                    title={`Rename Pillar: ${cat}`}
+                                >
+                                    <Edit2 size={12} />
+                                </button>
+                                <button 
+                                    onClick={(e) => { 
+                                        e.stopPropagation(); 
+                                        setPillarToDelete(cat);
+                                    }}
+                                    className="p-1 hover:bg-red-100 hover:text-red-600 rounded-full transition-all flex items-center justify-center"
+                                    title={`Delete Pillar: ${cat}`}
+                                >
+                                    <X size={12} />
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
                 ))}
                 

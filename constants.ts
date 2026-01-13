@@ -1095,6 +1095,18 @@ const AIMA_DATA = {
   ]
 };
 
+export const generateEmptyData = (): ProjectData => {
+  const currentYear = new Date().getFullYear();
+  return {
+    title: "New Project",
+    year: currentYear,
+    tasks: [],
+    dependencies: [],
+    teamMembers: [],
+    categories: ["General"]
+  };
+};
+
 export const generateInitialData = (): ProjectData => {
   const currentYear = new Date().getFullYear();
   const tasks: Task[] = [];
