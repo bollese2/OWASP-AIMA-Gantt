@@ -4,10 +4,12 @@ import { diffDays, addDays, calculateCriticalPath } from '../utils';
 
 interface GanttChartProps {
   tasks: Task[]; // Visible tasks only
+  allTasks: Task[]; // All tasks to find children
   dependencies: Dependency[];
   year: number;
   viewMode: ViewMode;
   onUpdateTask: (task: Task) => void;
+  onUpdateTaskWithChildren: (taskId: string, newStart: Date, newEnd: Date, initialStart: Date, initialEnd: Date) => void;
   onAddDependency: (dep: Dependency) => void;
   onDeleteDependency: (id: string) => void;
   selectedTaskId: string | null;
@@ -21,10 +23,12 @@ const BAR_HEIGHT = 20;
 
 const GanttChart = forwardRef<HTMLDivElement, GanttChartProps>(({
   tasks,
+  allTasks,
   dependencies,
   year,
   viewMode,
   onUpdateTask,
+  onUpdateTaskWithChildren,
   onAddDependency,
   onDeleteDependency,
   selectedTaskId,
@@ -61,8 +65,42 @@ const GanttChart = forwardRef<HTMLDivElement, GanttChartProps>(({
       break;
   }
   
-  const startDate = useMemo(() => new Date(year, 0, 1), [year]);
-  const endDate = useMemo(() => new Date(year, 11, 31), [year]);
+  // Calculate date range dynamically based on all tasks
+  const { startDate, endDate } = useMemo(() => {
+    if (allTasks.length === 0) {
+      // Default to year view if no tasks
+      return {
+        startDate: new Date(year, 0, 1),
+        endDate: new Date(year, 11, 31)
+      };
+    }
+    
+    // Find the earliest start date and latest end date
+    let minDate = new Date(allTasks[0].start);
+    let maxDate = new Date(allTasks[0].end);
+    
+    allTasks.forEach(task => {
+      const taskStart = new Date(task.start);
+      const taskEnd = new Date(task.end);
+      if (taskStart < minDate) minDate = taskStart;
+      if (taskEnd > maxDate) maxDate = taskEnd;
+    });
+    
+    // Add padding: 1 month before earliest, 2 months after latest
+    const paddedStart = new Date(minDate);
+    paddedStart.setMonth(paddedStart.getMonth() - 1);
+    paddedStart.setDate(1); // Start of month
+    
+    const paddedEnd = new Date(maxDate);
+    paddedEnd.setMonth(paddedEnd.getMonth() + 2);
+    paddedEnd.setDate(0); // Last day of previous month (which is the month we want)
+    
+    return {
+      startDate: paddedStart,
+      endDate: paddedEnd
+    };
+  }, [allTasks, year]);
+  
   const totalDays = diffDays(endDate, startDate) + 1;
   const chartWidth = totalDays * columnWidth;
 
@@ -206,19 +244,28 @@ const GanttChart = forwardRef<HTMLDivElement, GanttChartProps>(({
     const months = [];
     const ticks = [];
     
-    for (let m = 0; m < 12; m++) {
-      const d = new Date(year, m, 1);
-      const nextD = new Date(year, m + 1, 1);
-      const x = dateToX(d);
-      const w = dateToX(nextD) - x;
-      months.push(
-        <g key={`m-${m}`}>
-          <rect x={x} y={0} width={w} height={25} fill="#f8fafc" stroke="#e2e8f0" />
-          <text x={x + w/2} y={18} fontSize="12" textAnchor="middle" className="font-semibold text-slate-600">
-            {d.toLocaleString('default', { month: 'long' })}
-          </text>
-        </g>
-      );
+    // Generate months dynamically based on the date range
+    let currentMonth = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+    const lastMonth = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+    
+    while (currentMonth <= lastMonth) {
+      const nextMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1);
+      const x = dateToX(currentMonth);
+      const w = dateToX(nextMonth) - x;
+      
+      // Only render if within visible range
+      if (x + w >= 0 && x <= chartWidth) {
+        months.push(
+          <g key={`m-${currentMonth.getFullYear()}-${currentMonth.getMonth()}`}>
+            <rect x={x} y={0} width={w} height={25} fill="#f8fafc" stroke="#e2e8f0" />
+            <text x={x + w/2} y={18} fontSize="12" textAnchor="middle" className="font-semibold text-slate-600">
+              {currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}
+            </text>
+          </g>
+        );
+      }
+      
+      currentMonth = nextMonth;
     }
     
     for (let i = 0; i <= totalDays; i += tickInterval) {
@@ -412,8 +459,7 @@ const GanttChart = forwardRef<HTMLDivElement, GanttChartProps>(({
                               width={w}
                               height={12}
                               fill={color}
-                              className="cursor-move opacity-90"
-                              onPointerDown={(e) => handlePointerDown(e, task, 'move')}
+                              className="opacity-90"
                           />
                            <polygon 
                               points={`${x},${y+2} ${x},${y+18} ${x+6},${y+18} ${x+6},${y+14} ${x+4},${y+14} ${x+4},${y+2}`}

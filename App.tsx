@@ -7,15 +7,86 @@ import GanttChart from './components/GanttChart';
 import Dashboard from './components/Dashboard';
 import { Download, Upload, ZoomIn, ZoomOut, RotateCcw, Plus, Calendar, ShieldCheck, LayoutDashboard, BarChart, FilePlus, FolderPlus, X, AlertTriangle, Edit2, Check } from 'lucide-react';
 
+// LocalStorage keys
+const STORAGE_KEY_DATA = 'gantt-app-data';
+const STORAGE_KEY_PREFERENCES = 'gantt-app-preferences';
+
 const App: React.FC = () => {
-  const [data, setData] = useState<ProjectData>(generateEmptyData());
-  const [activeTab, setActiveTab] = useState<string>(data.categories?.[0] || "General");
-  const [viewMode, setViewMode] = useState<ViewMode>('Year');
+  // Load initial state from localStorage or defaults
+  const [data, setData] = useState<ProjectData>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_DATA);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Convert date strings back to Date objects
+        parsed.tasks = parsed.tasks.map((t: any) => ({
+          ...t,
+          start: new Date(t.start),
+          end: new Date(t.end)
+        }));
+        return parsed;
+      }
+    } catch (error) {
+      console.error('Error loading data from localStorage:', error);
+    }
+    return generateEmptyData();
+  });
+
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_PREFERENCES);
+      if (saved) {
+        const prefs = JSON.parse(saved);
+        return prefs.activeTab || data.categories?.[0] || "General";
+      }
+    } catch (error) {
+      console.error('Error loading preferences from localStorage:', error);
+    }
+    return data.categories?.[0] || "General";
+  });
+
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_PREFERENCES);
+      if (saved) {
+        const prefs = JSON.parse(saved);
+        return prefs.viewMode || 'Year';
+      }
+    } catch (error) {
+      console.error('Error loading preferences from localStorage:', error);
+    }
+    return 'Year';
+  });
+
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [currentView, setCurrentView] = useState<'Gantt' | 'Dashboard'>('Gantt');
+  
+  const [currentView, setCurrentView] = useState<'Gantt' | 'Dashboard'>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_PREFERENCES);
+      if (saved) {
+        const prefs = JSON.parse(saved);
+        return prefs.currentView || 'Gantt';
+      }
+    } catch (error) {
+      console.error('Error loading preferences from localStorage:', error);
+    }
+    return 'Gantt';
+  });
   
   // Resizing state
-  const [taskListWidth, setTaskListWidth] = useState(870);
+  const [taskListWidth, setTaskListWidth] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_PREFERENCES);
+      if (saved) {
+        const prefs = JSON.parse(saved);
+        return prefs.taskListWidth || 870;
+      }
+    } catch (error) {
+      console.error('Error loading preferences from localStorage:', error);
+    }
+    return 870;
+  });
+  
   const [isResizing, setIsResizing] = useState(false);
 
   // Pillar Management State
@@ -26,11 +97,42 @@ const App: React.FC = () => {
   const [renamePillarValue, setRenamePillarValue] = useState('');
   const [showLoadOWASPConfirm, setShowLoadOWASPConfirm] = useState(false);
 
+  // Auto-save indicator
+  const [showSavedIndicator, setShowSavedIndicator] = useState(false);
+
   // Scroll Sync Refs
   const taskListRef = useRef<HTMLDivElement>(null);
   const ganttChartRef = useRef<HTMLDivElement>(null);
   const isSyncingLeft = useRef(false);
   const isSyncingRight = useRef(false);
+
+  // Save data to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_DATA, JSON.stringify(data));
+      // Show saved indicator briefly
+      setShowSavedIndicator(true);
+      const timer = setTimeout(() => setShowSavedIndicator(false), 2000);
+      return () => clearTimeout(timer);
+    } catch (error) {
+      console.error('Error saving data to localStorage:', error);
+    }
+  }, [data]);
+
+  // Save preferences to localStorage
+  useEffect(() => {
+    try {
+      const preferences = {
+        activeTab,
+        viewMode,
+        currentView,
+        taskListWidth
+      };
+      localStorage.setItem(STORAGE_KEY_PREFERENCES, JSON.stringify(preferences));
+    } catch (error) {
+      console.error('Error saving preferences to localStorage:', error);
+    }
+  }, [activeTab, viewMode, currentView, taskListWidth]);
 
   // Ensure initial data has categories if loaded from older JSON
   useEffect(() => {
@@ -56,6 +158,51 @@ const App: React.FC = () => {
   // Handlers
   const handleUpdateTask = (updatedTask: Task) => {
     const newTasks = data.tasks.map(t => t.id === updatedTask.id ? updatedTask : t);
+    const recalculatedTasks = recalculateParentDates(newTasks);
+    setData({ ...data, tasks: recalculatedTasks });
+  };
+
+  const handleUpdateTaskWithChildren = (taskId: string, newStart: Date, newEnd: Date, initialStart: Date, initialEnd: Date) => {
+    // Calculate the shift from initial position
+    const startShift = Math.round((newStart.getTime() - initialStart.getTime()) / (24 * 60 * 60 * 1000));
+    const endShift = Math.round((newEnd.getTime() - initialEnd.getTime()) / (24 * 60 * 60 * 1000)) - startShift;
+    
+    // Find all descendants of this task
+    const findDescendants = (parentId: string): string[] => {
+      const children = data.tasks.filter(t => t.parentId === parentId).map(t => t.id);
+      const allDescendants = [...children];
+      children.forEach(childId => {
+        allDescendants.push(...findDescendants(childId));
+      });
+      return allDescendants;
+    };
+
+    const descendantIds = new Set([taskId, ...findDescendants(taskId)]);
+    
+    // Store initial positions for all affected tasks on first call
+    const initialPositions = new Map<string, {start: Date, end: Date}>();
+    data.tasks.forEach(t => {
+      if (descendantIds.has(t.id)) {
+        initialPositions.set(t.id, { start: new Date(t.start), end: new Date(t.end) });
+      }
+    });
+    
+    // Shift all affected tasks
+    const newTasks = data.tasks.map(t => {
+      if (t.id === taskId) {
+        // Use the exact new dates for the dragged task
+        return { ...t, start: new Date(newStart), end: new Date(newEnd) };
+      } else if (descendantIds.has(t.id)) {
+        // Shift children by the same amount
+        const taskNewStart = new Date(t.start);
+        taskNewStart.setDate(taskNewStart.getDate() + startShift);
+        const taskNewEnd = new Date(t.end);
+        taskNewEnd.setDate(taskNewEnd.getDate() + (startShift + endShift));
+        return { ...t, start: taskNewStart, end: taskNewEnd };
+      }
+      return t;
+    });
+
     const recalculatedTasks = recalculateParentDates(newTasks);
     setData({ ...data, tasks: recalculatedTasks });
   };
@@ -231,6 +378,92 @@ const App: React.FC = () => {
       setRenamePillarValue('');
   };
 
+  const handleReorderTasks = (draggedTaskId: string, targetTaskId: string, position: 'before' | 'after' | 'child') => {
+      const tasks = [...data.tasks];
+      const draggedIndex = tasks.findIndex(t => t.id === draggedTaskId);
+      const targetIndex = tasks.findIndex(t => t.id === targetTaskId);
+      
+      if (draggedIndex === -1 || targetIndex === -1) return;
+      
+      const draggedTask = tasks[draggedIndex];
+      const targetTask = tasks[targetIndex];
+      
+      // Don't allow dropping a parent into its own child
+      const draggedBlock = getTaskBlockRange(tasks, draggedIndex);
+      if (targetIndex >= draggedBlock.start && targetIndex <= draggedBlock.end) {
+          return; // Target is within dragged task's children
+      }
+      
+      // Don't allow reordering across different categories
+      if (draggedTask.category !== targetTask.category) return;
+      
+      // For before/after positioning, ensure they have the same parent
+      if (position === 'before' || position === 'after') {
+          if (draggedTask.parentId !== targetTask.parentId) {
+              return; // Can only reorder among siblings with same parent
+          }
+      }
+      
+      // Extract the dragged task and all its children
+      const draggedBlockItems = tasks.splice(draggedBlock.start, draggedBlock.end - draggedBlock.start + 1);
+      
+      // Find new target index after removal
+      const newTargetIndex = tasks.findIndex(t => t.id === targetTaskId);
+      
+      let insertIndex: number;
+      let updatedDraggedItems: Task[];
+      
+      if (position === 'child') {
+          // Make dragged item a child of the target folder
+          // Expand the target folder if it's collapsed
+          const updatedTargetTask = { ...tasks[newTargetIndex], isExpanded: true };
+          tasks[newTargetIndex] = updatedTargetTask;
+          
+          // Insert as first child (right after parent)
+          insertIndex = newTargetIndex + 1;
+          
+          // Update parent and depth to be child of target
+          const depthDiff = (targetTask.depth + 1) - draggedTask.depth;
+          updatedDraggedItems = draggedBlockItems.map((t, idx) => {
+              if (idx === 0) {
+                  // First item becomes a child of target
+                  return { ...t, parentId: targetTask.id, depth: targetTask.depth + 1 };
+              } else {
+                  // Children maintain relative depth
+                  return { ...t, depth: t.depth + depthDiff };
+              }
+          });
+      } else {
+          // Original behavior: make it a sibling
+          // Determine insertion point
+          insertIndex = position === 'before' ? newTargetIndex : newTargetIndex + 1;
+          
+          // If dropping after a task, we need to account for its children
+          if (position === 'after') {
+              const targetBlock = getTaskBlockRange(tasks, newTargetIndex);
+              insertIndex = targetBlock.end + 1;
+          }
+          
+          // Update parent and depth of dragged items to match target's sibling level
+          const depthDiff = targetTask.depth - draggedTask.depth;
+          updatedDraggedItems = draggedBlockItems.map((t, idx) => {
+              if (idx === 0) {
+                  // First item (the dragged task itself) becomes a sibling of target
+                  return { ...t, parentId: targetTask.parentId, depth: targetTask.depth };
+              } else {
+                  // Children maintain relative depth
+                  return { ...t, depth: t.depth + depthDiff };
+              }
+          });
+      }
+      
+      // Insert at new position
+      tasks.splice(insertIndex, 0, ...updatedDraggedItems);
+      
+      const recalculated = recalculateParentDates(tasks);
+      setData({ ...data, tasks: recalculated });
+  };
+
   const handleMoveTask = (taskId: string, direction: 'up' | 'down') => {
       const tasks = [...data.tasks];
       const taskIndex = tasks.findIndex(t => t.id === taskId);
@@ -327,6 +560,26 @@ const App: React.FC = () => {
     setData(owaspData);
     if (owaspData.categories.length > 0) setActiveTab(owaspData.categories[0]);
     setShowLoadOWASPConfirm(false);
+  };
+
+  const handleClearLocalStorage = () => {
+    if (confirm('Are you sure you want to clear all saved data? This will reset the application to empty state.')) {
+      try {
+        localStorage.removeItem(STORAGE_KEY_DATA);
+        localStorage.removeItem(STORAGE_KEY_PREFERENCES);
+        // Reset to empty state
+        const emptyData = generateEmptyData();
+        setData(emptyData);
+        setActiveTab(emptyData.categories?.[0] || "General");
+        setViewMode('Year');
+        setCurrentView('Gantt');
+        setTaskListWidth(870);
+        alert('Saved data cleared successfully!');
+      } catch (error) {
+        console.error('Error clearing localStorage:', error);
+        alert('Error clearing saved data');
+      }
+    }
   };
 
   const startResizing = useCallback(() => {
@@ -512,7 +765,14 @@ const App: React.FC = () => {
                </div>
                </>
            )}
-           <div className="flex gap-2">
+           <div className="flex gap-2 items-center">
+             {/* Auto-save indicator */}
+             {showSavedIndicator && (
+               <div className="flex items-center gap-1.5 text-xs text-green-600 bg-green-50 px-3 py-1.5 rounded-full border border-green-200 animate-in fade-in duration-200">
+                 <Check size={14} />
+                 <span className="font-medium">Saved</span>
+               </div>
+             )}
              <button 
                onClick={handleLoadOWASPAIMA} 
                className="px-3 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm flex items-center gap-2" 
@@ -520,6 +780,14 @@ const App: React.FC = () => {
              >
                <ShieldCheck size={16} />
                Load OWASP AIMA
+             </button>
+             <button 
+               onClick={handleClearLocalStorage}
+               className="px-3 py-2 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors border border-red-200 flex items-center gap-2" 
+               title="Clear saved data and reset"
+             >
+               <RotateCcw size={16} />
+               Clear Data
              </button>
              <button onClick={handleDownload} className="p-2 text-gray-600 hover:bg-gray-100 rounded-full transition-colors" title="Download JSON"><Download size={18} /></button>
              <label className="p-2 text-gray-600 hover:bg-gray-100 rounded-full transition-colors cursor-pointer" title="Upload JSON">
@@ -639,12 +907,14 @@ const App: React.FC = () => {
                 <TaskList 
                   ref={taskListRef}
                   tasks={visibleTasks}
+                  allTasks={data.tasks}
                   onUpdateTask={handleUpdateTask}
+                  onUpdateTaskWithChildren={handleUpdateTaskWithChildren}
                   onDeleteTask={handleDeleteTask}
                   onAddTask={handleAddTask}
                   onAddRootFolder={handleAddRootFolder}
                   onAddChild={handleAddChild}
-                  onMoveTask={handleMoveTask}
+                  onReorderTasks={handleReorderTasks}
                   selectedTaskId={selectedTaskId}
                   onSelectTask={setSelectedTaskId}
                   teamMembers={data.teamMembers || []}
@@ -657,10 +927,12 @@ const App: React.FC = () => {
                 <GanttChart 
                   ref={ganttChartRef}
                   tasks={visibleTasks}
+                  allTasks={data.tasks}
                   dependencies={data.dependencies}
                   year={data.year}
                   viewMode={viewMode}
                   onUpdateTask={handleUpdateTask}
+                  onUpdateTaskWithChildren={handleUpdateTaskWithChildren}
                   onAddDependency={handleAddDependency}
                   onDeleteDependency={handleDeleteDependency}
                   selectedTaskId={selectedTaskId}
@@ -676,18 +948,29 @@ const App: React.FC = () => {
                     <span className="flex items-center gap-1"><div className="w-3 h-3 bg-red-400 rounded"></div> Critical Path</span>
                     <span className="flex items-center gap-1"><div className="w-3 h-3 bg-gray-200 rounded"></div> Inactive</span>
                 </div>
-                <div>Drag divider to resize • Hover over tabs to see delete option</div>
+                <div className="flex items-center gap-2">
+                  <span className="text-green-600 font-medium">● Auto-saved</span>
+                  <span>•</span>
+                  <span>Drag divider to resize • Hover over tabs to see delete option</span>
+                </div>
             </footer>
           </>
       ) : (
-          <div className="flex-1 overflow-hidden">
+          <>
+            <div className="flex-1 overflow-hidden">
               <Dashboard 
                 tasks={data.tasks} 
                 teamMembers={data.teamMembers || []} 
                 onUpdateTeamMembers={handleUpdateTeamMembers}
                 onUpdateTask={handleUpdateTask}
               />
-          </div>
+            </div>
+            <footer className="bg-white border-t border-gray-200 p-2 px-6 flex items-center justify-end text-xs text-gray-500 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="text-green-600 font-medium">● Auto-saved</span>
+              </div>
+            </footer>
+          </>
       )}
     </div>
   );
