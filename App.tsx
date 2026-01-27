@@ -5,7 +5,8 @@ import { getVisibleTasks, recalculateParentDates, getTaskBlockRange } from './ut
 import TaskList from './components/TaskList';
 import GanttChart from './components/GanttChart';
 import Dashboard from './components/Dashboard';
-import { Download, Upload, ZoomIn, ZoomOut, RotateCcw, Plus, Calendar, ShieldCheck, LayoutDashboard, BarChart, FilePlus, FolderPlus, X, AlertTriangle, Edit2, Check } from 'lucide-react';
+import Kanban from './components/Kanban';
+import { Download, Upload, ZoomIn, ZoomOut, RotateCcw, Plus, Calendar, ShieldCheck, LayoutDashboard, BarChart, FilePlus, FolderPlus, X, AlertTriangle, Edit2, Check, Trello } from 'lucide-react';
 
 // LocalStorage keys
 const STORAGE_KEY_DATA = 'gantt-app-data';
@@ -60,7 +61,7 @@ const App: React.FC = () => {
 
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   
-  const [currentView, setCurrentView] = useState<'Gantt' | 'Dashboard'>(() => {
+  const [currentView, setCurrentView] = useState<'Gantt' | 'Dashboard' | 'Kanban'>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_PREFERENCES);
       if (saved) {
@@ -743,6 +744,12 @@ const App: React.FC = () => {
              >
                 <LayoutDashboard size={16} /> Dashboard
              </button>
+             <button 
+                onClick={() => setCurrentView('Kanban')}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${currentView === 'Kanban' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+             >
+                <Trello size={16} /> Kanban
+             </button>
         </div>
 
         <div className="flex items-center gap-4">
@@ -955,13 +962,29 @@ const App: React.FC = () => {
                 </div>
             </footer>
           </>
-      ) : (
+      ) : currentView === 'Dashboard' ? (
           <>
             <div className="flex-1 overflow-hidden">
               <Dashboard 
                 tasks={data.tasks} 
                 teamMembers={data.teamMembers || []} 
                 onUpdateTeamMembers={handleUpdateTeamMembers}
+                onUpdateTask={handleUpdateTask}
+              />
+            </div>
+            <footer className="bg-white border-t border-gray-200 p-2 px-6 flex items-center justify-end text-xs text-gray-500 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="text-green-600 font-medium">● Auto-saved</span>
+              </div>
+            </footer>
+          </>
+      ) : (
+          <>
+            <div className="flex-1 overflow-hidden">
+              <Kanban 
+                tasks={data.tasks} 
+                allTasks={data.tasks}
+                teamMembers={data.teamMembers || []} 
                 onUpdateTask={handleUpdateTask}
               />
             </div>
